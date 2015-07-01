@@ -1,0 +1,35 @@
+{
+  "name": "module-swapper",
+  "version": "0.1.0",
+  "description": "A tool for swapping module loading systems on large codebases",
+  "main": "index.js",
+  "bin": {
+    "module-swapper": "./bin/module-swapper"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jesseditson/module-swapper.git"
+  },
+  "keywords": [
+    "modules",
+    "es6",
+    "commonjs",
+    "marionette",
+    "amd"
+  ],
+  "author": "Jesse Ditson <jesse.ditson@gmail.com>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jesseditson/module-swapper/issues"
+  },
+  "homepage": "https://github.com/jesseditson/module-swapper#readme",
+  "dependencies": {
+    "acorn-jsx": "^2.0.0",
+    "falafel": "jesseditson/node-falafel#custom_parser",
+    "findit": "^2.0.0",
+    "scoped": "^3.0.2"
+  }
+}
