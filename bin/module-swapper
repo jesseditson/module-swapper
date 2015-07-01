@@ -1,2 +1,11 @@
 #!/usr/bin/env node
-require('../index.js')
+var args = process.argv.slice(2)
+
+require('../index.js')({
+  dir: args[0] || '.',
+  extensions: null,
+  loader: null,
+  modules: null,
+  falafelOpts: null,
+  replaceInline: false
+})

@@ -7,7 +7,7 @@
     "module-swapper": "./bin/module-swapper"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha --recursive --reporter spec --bail --slow 700 --check-leaks test/**/*.spec.js"
   },
   "repository": {
     "type": "git",
@@ -31,5 +31,8 @@
     "falafel": "jesseditson/node-falafel#custom_parser",
     "findit": "^2.0.0",
     "scoped": "^3.0.2"
+  },
+  "devDependencies": {
+    "debug": "^2.2.0"
   }
 }
