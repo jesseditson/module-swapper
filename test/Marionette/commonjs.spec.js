@@ -34,7 +34,7 @@ describe('Marionette modules -> commonjs', function() {
     })
   })
 
-  describe('basic app', function() {
+  describe("basic app (using App.module('name') syntax)", function() {
 
     it('should process all files', function(done) {
       moduleSwapper(opts('basic'), function(err, files) {
@@ -61,7 +61,7 @@ describe('Marionette modules -> commonjs', function() {
       })
     })
 
-    it ('should properly calculate module dependencies', function(done) {
+    it ('should import the right modules and replace the module calls', function(done) {
       moduleSwapper(opts('basic'), function(err, files) {
         assert.ifError(err)
         for (var f in files) {
@@ -71,6 +71,26 @@ describe('Marionette modules -> commonjs', function() {
             assertContainsLine(files[f], "var App = require('./app');")
             assertContainsLine(files[f], "var MyModuleName = require('./module');")
             assertContainsLine(files[f], 'var anotherModule = MyModuleName')
+          }
+        }
+        done()
+      })
+    })
+
+  })
+
+  describe('an app with multiple modules with the same name', function() {
+
+    it ('should properly calculate module dependencies', function(done) {
+      moduleSwapper(opts('multipleDefinitions'), function(err, files) {
+        assert.ifError(err)
+        for (var f in files) {
+          if (isFile(f, 'module3.js')) {
+            assertContainsLine(files[f], "var App = require('./app');")
+            assertContainsLine(files[f], "var MyModuleName = require('./module2');")
+            assertContainsLine(files[f], "var MyModuleName2 = require('./module');")
+            assertContainsLine(files[f], 'var aFunction = MyModuleName.someFunction')
+            assertContainsLine(files[f], 'var aProp = MyModuleName2.aProperty')
           }
         }
         done()

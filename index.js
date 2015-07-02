@@ -11,6 +11,7 @@ module.exports = function(opts, callback) {
 
   var appName, appFile
   var definedModules = {}
+  var moduleProperties = {}
   var moduleFiles = {}
   var accessedModules = {}
   var fileDependencies = {}
@@ -115,12 +116,22 @@ module.exports = function(opts, callback) {
         })
         Object.keys(o.accessed).forEach(function(d) {
           accessedModules[d] = accessedModules[d] || []
-          var files = o.accessed[d]
-          files.forEach(function(file) {
-            accessedModules[d].push(file)
-            fileDependencies[file] = fileDependencies[file] || []
-            fileDependencies[file].push(d)
+          var infos = o.accessed[d]
+          infos.forEach(function(info) {
+            accessedModules[d].push(info)
+            fileDependencies[info.file] = fileDependencies[info.file] || []
+            fileDependencies[info.file].push({
+              name: d,
+              property: info.property
+            })
           })
+        })
+        Object.keys(o.properties).forEach(function(d) {
+          moduleProperties[d] = moduleProperties[d] || {}
+          var fileMap = o.properties[d]
+          for (var file in fileMap) {
+            moduleProperties[d][fileMap[file]] = file
+          }
         })
         globalModules[file] = o.global
       }
@@ -249,7 +260,12 @@ module.exports = function(opts, callback) {
               }
               cNode = cNode.parent
             }
-            fn(moduleName, def)
+            // if the parent of this definition is a member expression, we're accessing a property.
+            var property
+            if (def.parent.type === 'MemberExpression') {
+              property = def.parent.property.name
+            }
+            fn(moduleName, def, property)
           } else {
             //TODO: If we don't have the module name, we'll need to figure out how to calculate it using the expression. Not sure what the right approach there is.
             logger('Found unresolved module access:', moduleDef)
@@ -265,8 +281,8 @@ module.exports = function(opts, callback) {
 
   var accessedMarionetteModules = function(node, appName) {
     var modules = []
-    var moduleVar = findModuleNodes(node, appName, function(moduleName) {
-      modules.push(moduleName)
+    var moduleVar = findModuleNodes(node, appName, function(moduleName, node, property) {
+      modules.push({name: moduleName, property: property})
     })
     return {module: moduleVar, modules: modules}
   }
@@ -282,20 +298,36 @@ module.exports = function(opts, callback) {
     }))
     // now figure out what marionette modules we're using
     var definedModules = {}
+    var moduleVars = {}
+    var moduleProperties = {}
     var accessedModules = {}
-    var out = falafel(contents, falafelOpts, function(node) {
+    falafel(contents, falafelOpts, function(node) {
       var defined = marionetteModuleDefinition(node, appName)
       if (defined) {
         logger('found module definition for', defined.name)
         definedModules[defined.name] = definedModules[defined.name] || []
         definedModules[defined.name].push(file)
+        moduleVars[defined.module] = defined.name
       }
       var accessed = accessedMarionetteModules(node, appName)
       if (accessed && accessed.modules.length) {
-        accessed.modules.forEach(function(module) {
+        accessed.modules.forEach(function(info) {
+          var module = info.name
           accessedModules[module] = accessedModules[module] || []
-          accessedModules[module] = accessedModules[module].concat(file)
+          accessedModules[module] = accessedModules[module].concat({
+            file: file,
+            property: info.property
+          })
         })
+      }
+    })
+    // look at all our member expressions, and if we are setting a property on a module we defined, add those properties to a list.
+    falafel(contents, falafelOpts, function(node) {
+      if (node.type === 'MemberExpression' && moduleVars[node.object.name]) {
+        var moduleName = moduleVars[node.object.name]
+        moduleProperties[moduleName] = moduleProperties[moduleName] || {}
+        moduleProperties[moduleName][file] = moduleProperties[moduleName][file] || []
+        moduleProperties[moduleName][file].push(node.property.name)
       }
     })
     logger('global dependencies -> ', needsRequire)
@@ -303,7 +335,8 @@ module.exports = function(opts, callback) {
     return {
       global: needsRequire,
       defined: definedModules,
-      accessed: accessedModules
+      accessed: accessedModules,
+      properties: moduleProperties
     }
   }
 
@@ -322,16 +355,40 @@ module.exports = function(opts, callback) {
 
     var dependencies = fileDependencies[file]
     var moduleImports = {}
+    var moduleVars = {}
     if (dependencies) {
       // this file has module dependencies
-      dependencies.forEach(function(moduleName) {
+      dependencies.forEach(function(info) {
         // TODO: figure out what to do with self-referencing modules, I believe this is because modules can be defined in multiple places.
         // this will mean we'll need to figure out who is defining the file that contains the property we're after.
-        var moduleDefinitionFiles = definedModules[moduleName]
-        if (moduleDefinitionFiles.length > 1) {
-          logger("WARNING: multiple definitions found for module" + moduleName +", resolution may be innacurate.")
+        var moduleDefinitionFiles = definedModules[info.name]
+        var fileProperties = moduleProperties[info.name]
+        var moduleName = info.name
+        if (moduleImports[moduleName]) {
+          var p = /(\d)?$/
+          var m = moduleName.match(p)
+          // add or increment a trailing number if there's already a module being imported by this name.
+          moduleName = moduleName.replace(p, parseInt(m[1] || '1', 10) + 1)
         }
-        moduleImports[moduleName] = moduleDefinitionFiles[0]
+        moduleVars[info.name] = moduleVars[info.name] || []
+        moduleVars[info.name].push({
+          name: moduleName,
+          property: info.property
+        })
+        if (info.property) {
+          var file = fileProperties[info.property]
+          // TODO: perhaps we should allow the user to select an option here instead of bailing?
+          if (!file) {
+            throw new Error('Found multiple modules by the same name, but was unable to resolve the dependency based on accessed properties.')
+          } else {
+            moduleImports[moduleName] = file
+          }
+        } else {
+          if (moduleDefinitionFiles.length > 1) {
+            logger("WARNING: multiple definitions found for module " + moduleName +", resolution may be innacurate.")
+          }
+          moduleImports[moduleName] = moduleDefinitionFiles[0]
+        }
       })
     }
 
@@ -339,8 +396,19 @@ module.exports = function(opts, callback) {
     var contents = fs.readFileSync(file, 'utf8')
     var output = falafel(contents, falafelOpts, function(node) {
       // TODO: replace any import commands with a reference to the module variable (from moduleImports)
-      var foundModule = findModuleNodes(node, appName, function(moduleName, def) {
-        def.update(moduleName)
+      var foundModule = findModuleNodes(node, appName, function(moduleName, def, property) {
+        var names = moduleVars[moduleName]
+        var varName = names[0].name
+        var len = names.length
+        if (len > 1 && property) {
+          for(var i=0;i<len;i++) {
+            if (names[i].property === property) {
+              varName = names[i].name
+              break
+            }
+          }
+        }
+        def.update(varName)
       })
       if (foundModule) {
         // TODO: probably should verify that we're not defining multiple modules
@@ -376,7 +444,6 @@ module.exports = function(opts, callback) {
 
     output = String(output)
     // add all our imports to the top of the file.
-    // TODO: add module imports
     output = addImports(file, output, loaderName, moduleImports)
     // add the global imports
     output = addImports(file, output, loaderName, globalDependencies)
@@ -396,6 +463,7 @@ module.exports = function(opts, callback) {
         if (importNames.length) {
           logger('adding imports:')
           importNames.forEach(function(varName) {
+            // TODO: we'll need to make sure that we're not conflicting with any variables in this scope
             var dependencyPath = imports[varName]
             // resolve relative or absolute paths, otherwise we assume this is available by name.
             if (/^[\/\.]/.test(dependencyPath)) {
