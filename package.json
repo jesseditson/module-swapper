@@ -28,6 +28,8 @@
   "homepage": "https://github.com/jesseditson/module-swapper#readme",
   "dependencies": {
     "acorn-jsx": "^2.0.0",
+    "colors": "^1.1.2",
+    "diff": "^1.4.0",
     "falafel": "jesseditson/node-falafel#custom_parser",
     "findit": "^2.0.0",
     "scoped": "^3.0.2"

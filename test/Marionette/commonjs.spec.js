@@ -1,10 +1,36 @@
 var assert = require('assert')
+var path = require('path')
 var debug = require('debug')('marionette-test')
 var moduleSwapper = require('../..')
 
+var fixtureBase = __dirname + '/fixtures/'
+
+var jsdiff, diff
+if (~process.argv.indexOf('--diff')) {
+  require('colors')
+  jsdiff = require('diff')
+  diff = function(ifiles, ofiles, base) {
+    // TODO: maybe use difflines?
+    for (var f in ifiles) {
+      var diff = jsdiff.diffLines(ifiles[f], ofiles[f])
+      process.stderr.write(('\n---------- diff:\n' + path.relative(base, f)).yellow + '\n\n')
+      diff.forEach(function(part){
+        // green for additions, red for deletions
+        // grey for common parts
+        var color = part.added ? 'green' :
+            part.removed ? 'red' : 'grey'
+        var pre = part.added ? '+' : part.removed ? '-' : ' '
+        String(part.value).split('\n').forEach(function(l) {
+          if (l.length > 0) process.stderr.write(('' + pre + '   ' + l)[color] + '\n')
+        })
+      })
+    }
+  }
+}
+
 var opts = function(fixture, o) {
   var base = {
-    dir: __dirname + '/fixtures/' + fixture,
+    dir: fixtureBase + fixture,
     logger: debug,
     loader: 'commonjs'
   }
@@ -62,7 +88,7 @@ describe('Marionette modules -> commonjs', function() {
     })
 
     it ('should import the right modules and replace the module calls', function(done) {
-      moduleSwapper(opts('basic'), function(err, files) {
+      moduleSwapper(opts('basic'), function(err, files, inFiles) {
         assert.ifError(err)
         for (var f in files) {
           if (isFile(f, 'module.js')) {
@@ -73,6 +99,7 @@ describe('Marionette modules -> commonjs', function() {
             assertContainsLine(files[f], 'var anotherModule = MyModuleName')
           }
         }
+        if (diff) diff(inFiles, files, fixtureBase)
         done()
       })
     })
@@ -82,7 +109,7 @@ describe('Marionette modules -> commonjs', function() {
   describe('an app with multiple modules with the same name', function() {
 
     it ('should properly calculate module dependencies', function(done) {
-      moduleSwapper(opts('multipleDefinitions'), function(err, files) {
+      moduleSwapper(opts('multipleDefinitions'), function(err, files, inFiles) {
         assert.ifError(err)
         for (var f in files) {
           if (isFile(f, 'module3.js')) {
@@ -93,6 +120,7 @@ describe('Marionette modules -> commonjs', function() {
             assertContainsLine(files[f], 'var aProp = MyModuleName2.aProperty')
           }
         }
+        if (diff) diff(inFiles, files, fixtureBase)
         done()
       })
     })

@@ -9,6 +9,9 @@ module.exports = function(opts, callback) {
 
   var extensions, loaderName, globalModuleMap, falafelOpts, replaceInline, fileFilter, completedCallback, logger
 
+  var fileContents = {}
+  var getContents = function(n) { return fileContents[n] = fs.readFileSync(n, 'utf8') }
+
   var appName, appFile
   var definedModules = {}
   var moduleProperties = {}
@@ -58,7 +61,7 @@ module.exports = function(opts, callback) {
 
     // first, resolve and update the main app file
     logger('------------------- updating app file ----------------------------')
-    var contents = fs.readFileSync(appFile, 'utf8')
+    var contents = getContents(appFile)
     // resolve our app file's dependencies (if any)
     transformedFiles[appFile] = resolveFileDependencies(appFile, false)
     transformedFiles[appFile] = addExport(transformedFiles[appFile], loaderName, appName)
@@ -69,7 +72,7 @@ module.exports = function(opts, callback) {
         fs.writeFileSync(file, transformedFiles[file])
       }
     })
-    completedCallback(null, transformedFiles)
+    completedCallback(null, transformedFiles, fileContents)
   })
 
   var needsProcess = []
@@ -77,7 +80,7 @@ module.exports = function(opts, callback) {
     if (fileFilter && !fileFilter.test(file)) return
     if (!~extensions.indexOf(path.extname(file))) return
     file = path.resolve(process.cwd(), file)
-    var contents = fs.readFileSync(file, 'utf8')
+    var contents = getContents(file)
 
     // find our app name
     falafel(contents, falafelOpts, function(node) {
@@ -393,7 +396,7 @@ module.exports = function(opts, callback) {
     }
 
     var moduleVar
-    var contents = fs.readFileSync(file, 'utf8')
+    var contents = getContents(file)
     var output = falafel(contents, falafelOpts, function(node) {
       // TODO: replace any import commands with a reference to the module variable (from moduleImports)
       var foundModule = findModuleNodes(node, appName, function(moduleName, def, property) {
