@@ -40,9 +40,17 @@ var opts = function(fixture, o) {
   return base
 }
 
-var assertContainsLine = function(file, line) {
+var containsLine = function(file, line) {
   var lines = file.split('\n').map(function(s) { return s.trim() })
-  assert(~lines.indexOf(line), 'Failed to find ' + line + ' in:\n' + lines.join('\n'))
+  return !!~lines.indexOf(line)
+}
+
+var assertNotContainsLine = function(file, line) {
+  assert(!containsLine(file, line), 'Found unexpected line ' + line + ' in:\n' + file)
+}
+
+var assertContainsLine = function(file, line) {
+  assert(containsLine(file, line), 'Failed to find ' + line + ' in:\n' + file)
 }
 
 var isFile = function(input, name) {
@@ -108,11 +116,34 @@ describe('Marionette modules -> commonjs', function() {
 
   describe('an app with multiple modules with the same name', function() {
 
-    it ('should properly calculate module dependencies', function(done) {
+    it ('should use the correct version of the file based on what properties were accessed', function(done) {
       moduleSwapper(opts('multipleDefinitions'), function(err, files, inFiles) {
         assert.ifError(err)
         for (var f in files) {
-          if (isFile(f, 'module3.js')) {
+          if (isFile(f, 'module2.js')) {
+            // make sure we're not importing twice
+            assertNotContainsLine(files[f], "var MyModuleName2 = require('./module');")
+          } else if (isFile(f, 'module3.js')) {
+            assertContainsLine(files[f], "var App = require('./app');")
+            assertContainsLine(files[f], "var MyModuleName = require('./module2');")
+            assertContainsLine(files[f], "var MyModuleName2 = require('./module');")
+            assertContainsLine(files[f], 'var aFunction = MyModuleName.someFunction')
+            assertContainsLine(files[f], 'var aProp = MyModuleName2.aProperty')
+          }
+        }
+        if (diff) diff(inFiles, files, fixtureBase)
+        done()
+      })
+    })
+
+    it.only('should correctly calculate the dependency if the module was assigned to a variable', function(done) {
+      moduleSwapper(opts('multipleDefinitionsComplex'), function(err, files, inFiles) {
+        assert.ifError(err)
+        for (var f in files) {
+          if (isFile(f, 'module2.js')) {
+            // make sure we're not importing twice
+            assertNotContainsLine(files[f], "var MyModuleName2 = require('./module');")
+          } else if (isFile(f, 'module3.js')) {
             assertContainsLine(files[f], "var App = require('./app');")
             assertContainsLine(files[f], "var MyModuleName = require('./module2');")
             assertContainsLine(files[f], "var MyModuleName2 = require('./module');")

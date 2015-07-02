@@ -17,6 +17,7 @@ module.exports = function(opts, callback) {
   var moduleProperties = {}
   var moduleFiles = {}
   var accessedModules = {}
+  var accessedProperties = {}
   var fileDependencies = {}
   var globalModules = {}
   var transformedFiles = {}
@@ -51,7 +52,12 @@ module.exports = function(opts, callback) {
     var definedKeys = Object.keys(definedModules)
     logger("Defined Modules: ", definedKeys)
     var accessedKeys = Object.keys(accessedModules)
-    logger("Accessed Modules: ", accessedKeys)
+    logger("Accessed Modules: ", accessedKeys.map(function(k) {
+      return k + ' (' + accessedModules[k].reduce(function(a, info, idx) {
+        if (info.property && !~a.indexOf(info.property)) a.push(info.property)
+        return a
+      }, []).join(', ') + ')'
+    }))
     var unusedModules = definedKeys.filter(function(k) { return !accessedModules[k] })
     var undefinedModules = accessedKeys.filter(function(k) { return !definedModules[k] })
     logger("Unused modules: ", unusedModules)
@@ -108,6 +114,8 @@ module.exports = function(opts, callback) {
     try {
       var o = processFileDependencies(file, contents, appName)
       if (o) {
+        globalModules[file] = o.global
+
         Object.keys(o.defined).forEach(function(d) {
           definedModules[d] = definedModules[d] || []
           var files = o.defined[d]
@@ -117,18 +125,6 @@ module.exports = function(opts, callback) {
             moduleFiles[file].push(d)
           })
         })
-        Object.keys(o.accessed).forEach(function(d) {
-          accessedModules[d] = accessedModules[d] || []
-          var infos = o.accessed[d]
-          infos.forEach(function(info) {
-            accessedModules[d].push(info)
-            fileDependencies[info.file] = fileDependencies[info.file] || []
-            fileDependencies[info.file].push({
-              name: d,
-              property: info.property
-            })
-          })
-        })
         Object.keys(o.properties).forEach(function(d) {
           moduleProperties[d] = moduleProperties[d] || {}
           var fileMap = o.properties[d]
@@ -136,7 +132,19 @@ module.exports = function(opts, callback) {
             moduleProperties[d][fileMap[file]] = file
           }
         })
-        globalModules[file] = o.global
+
+        Object.keys(o.accessed).forEach(function(d) {
+          accessedModules[d] = accessedModules[d] || []
+          var infos = o.accessed[d]
+          infos.forEach(function(file) {
+            accessedModules[d].push(file)
+            fileDependencies[file] = fileDependencies[file] || []
+            fileDependencies[file].push({
+              name: d,
+              properties: o.accessedProperties[d]
+            })
+          })
+        })
       }
     } catch(e) {
       logger('failed processing file ' + file + ':')
@@ -156,16 +164,6 @@ module.exports = function(opts, callback) {
       // logger('entering ' + dir + '/')
     }
   })
-
-  /*
-    pseudo code for processing:
-    1. find the marionette app name by looking for `new Marionette.App`
-    // TODO: what if the app is reassigned to a new var?
-    2. find any module definitions with .module(''), save to a map of locations
-    3. find any uses of modules, save to a map of files that use it or something
-    4. resolve all dependencies, warn about use of undefined modules
-    5. add necessary require statements
-  */
 
   var isMarionetteApp = function(node) {
     var isExpression = node.type === 'MemberExpression'
@@ -239,56 +237,112 @@ module.exports = function(opts, callback) {
     }
   }
 
-  var findModuleNodes = function(node, appName, fn) {
-    var moduleVars = getModuleVars(node, appName)
-    var moduleVar = moduleVars.moduleVar
-    var appVar = moduleVars.appVar
-    if (!appVar) return
-    if (isMarionetteAppMemberExpression(node.parent, [appName, appVar])) {
-      // if this is a call expression and the method is 'module', we're invoking a marionette module.
-      // TODO: marionette allows access of modules by just accessing the module name on App, which is set on the prototype.
-      // Not sure what the best path is for figuring out when these properties are in fact modules, I suppose we can see if there's a type that looks right.
-      // We'll need to resolve this before this tool will be accurate.
-      if (node.parent.parent.type === 'CallExpression' && node.parent.property.name === 'module') {
-        var args = node.parent.parent.arguments
-        if (args.length === 1) {
-          // we're not defining a new module, so we're accessing one.
-          var moduleDef = args[0]
-          if (moduleDef.type === 'Literal') {
-            var moduleName = args[0].value
-            var def, cNode = node
-            while (!def) {
-              if (cNode.type === 'CallExpression') {
-                def = cNode
-              }
-              cNode = cNode.parent
-            }
-            // if the parent of this definition is a member expression, we're accessing a property.
-            var property
-            if (def.parent.type === 'MemberExpression') {
-              property = def.parent.property.name
-            }
-            fn(moduleName, def, property)
-          } else {
-            //TODO: If we don't have the module name, we'll need to figure out how to calculate it using the expression. Not sure what the right approach there is.
-            logger('Found unresolved module access:', moduleDef)
-          }
-        } else {
-          // here's where we'd end up if we found App.module('name', anotherArgument).
-          // TODO: make sure that we can't access modules by doing the above.
-        }
-      }
+  var findModulePropertyAccess = function(contents, varMap, fn) {
+    // if this is a string, set it to the root (true indicates that this is the original module name)
+    if (typeof varMap === 'string') {
+      var o = {}
+      o[varMap] = true
+      varMap = o
     }
-    return moduleVar
+    var mapCount = Object.keys(varMap).length
+    // first, build our map of module access
+    falafel(contents, falafelOpts, function(node) {
+      if (node.type === 'VariableDeclaration') {
+        node.declarations.forEach(function(dec) {
+          var accessed = nodeIsAccessingModule(dec.init, varMap)
+          if (varMap[dec.init.name] || accessed) {
+            varMap[dec.id.name] = accessed || dec.init.name
+          }
+        })
+      }
+    })
+    // if we've changed the var map, run the tree again to make sure we have the full map.
+    if (Object.keys(varMap).length > mapCount) return findModulePropertyAccess(contents, varMap, fn)
+    // now that we have the mappings for all the variables, find the property access
+    var properties = []
+    var out = falafel(String(contents), falafelOpts, function(node) {
+      if (node.object && nodeIsAccessingModule(node.object, varMap)) {
+        if (fn) {
+          fn(node.property.name, node.object, varMap)
+        }
+        properties.push(node.property.name)
+      }
+    })
+    if (fn) {
+      return String(out)
+    } else {
+      return uniq(properties)
+    }
   }
 
-  var accessedMarionetteModules = function(node, appName) {
-    var modules = []
-    var moduleVar = findModuleNodes(node, appName, function(moduleName, node, property) {
-      modules.push({name: moduleName, property: property})
-    })
-    return {module: moduleVar, modules: modules}
+  var nodeIsAccessingModule = function(node, map) {
+    if (typeof map === 'string') {
+      var o = {}
+      o[map] = true
+      map = o
+    }
+    if (node.type === 'CallExpression' && node.callee.property.name === 'module') {
+      var args = node.arguments
+      var moduleDef = args[0]
+      if (moduleDef.type === 'Literal') {
+        var moduleName = args[0].value
+        if (map[moduleName]) {
+          return moduleName
+        }
+      } else {
+        // FIXME: need to resolve access of non-literals
+        throw new Error('Cannot analyze non-literal module definition ' + node.parent.source() + '.')
+      }
+    } else if (node.name && map[node.name]) {
+      return node.name
+    }
   }
+
+  // var findModuleNodes = function(node, appName, fn) {
+  //   var moduleVars = getModuleVars(node, appName)
+  //   var moduleVar = moduleVars.moduleVar
+  //   var appVar = moduleVars.appVar
+  //   if (!appVar) return
+  //   if (isMarionetteAppMemberExpression(node.parent, [appName, appVar])) {
+  //     // if this is a call expression and the method is 'module', we're invoking a marionette module.
+  //     // TODO: marionette allows access of modules by just accessing the module name on App, which is set on the prototype.
+  //     // Not sure what the best path is for figuring out when these properties are in fact modules, I suppose we can see if there's a type that looks right.
+  //     // We'll need to resolve this before this tool will be accurate.
+  //     if (node.parent.parent.type === 'CallExpression' && node.parent.property.name === 'module') {
+  //       var args = node.parent.parent.arguments
+  //       if (args.length === 1) {
+  //         // we're not defining a new module, so we're accessing one.
+  //         var moduleDef = args[0]
+  //         if (moduleDef.type === 'Literal') {
+  //           var moduleName = args[0].value
+  //           var def, cNode = node
+  //           while (!def) {
+  //             if (cNode.type === 'CallExpression') {
+  //               def = cNode
+  //             }
+  //             cNode = cNode.parent
+  //           }
+  //           fn(moduleName, def)
+  //         } else {
+  //           // TODO: need to resolve access of non-literals
+  //           throw new Error('Cannot analyze non-literal module definition ' + node.parent.parent.source() + '.')
+  //         }
+  //       } else {
+  //         // here's where we'd end up if we found App.module('name', anotherArgument).
+  //         // TODO: make sure that we can't access modules by doing the above.
+  //       }
+  //     }
+  //   }
+  //   return moduleVar
+  // }
+
+  // var accessedMarionetteModules = function(node, appName) {
+  //   var modules = []
+  //   var moduleVar = findModuleNodes(node, appName, function(moduleName) {
+  //     modules.push({name: moduleName})
+  //   })
+  //   return {module: moduleVar, modules: modules}
+  // }
 
   var processFileDependencies = function(file, contents, appName) {
     var needsRequire = []
@@ -304,6 +358,7 @@ module.exports = function(opts, callback) {
     var moduleVars = {}
     var moduleProperties = {}
     var accessedModules = {}
+    var accessedProperties = {}
     falafel(contents, falafelOpts, function(node) {
       var defined = marionetteModuleDefinition(node, appName)
       if (defined) {
@@ -317,10 +372,7 @@ module.exports = function(opts, callback) {
         accessed.modules.forEach(function(info) {
           var module = info.name
           accessedModules[module] = accessedModules[module] || []
-          accessedModules[module] = accessedModules[module].concat({
-            file: file,
-            property: info.property
-          })
+          accessedModules[module] = accessedModules[module].concat(file)
         })
       }
     })
@@ -333,13 +385,18 @@ module.exports = function(opts, callback) {
         moduleProperties[moduleName][file].push(node.property.name)
       }
     })
+    Object.keys(accessedModules).forEach(function(moduleName) {
+      accessedProperties[moduleName] = findModulePropertyAccess(contents, moduleName)
+    })
     logger('global dependencies -> ', needsRequire)
+    console.log(accessedModules, accessedProperties)
     logger('module dependencies -> ', Object.keys(accessedModules))
     return {
       global: needsRequire,
       defined: definedModules,
       accessed: accessedModules,
-      properties: moduleProperties
+      properties: moduleProperties,
+      accessedProperties: accessedProperties
     }
   }
 
@@ -356,7 +413,21 @@ module.exports = function(opts, callback) {
       return o
     }, {})
 
+    var contents = getContents(file)
     var dependencies = fileDependencies[file]
+    var properties = accessedProperties[file]
+    console.log(properties, accessedProperties)
+    console.log('deps', fileDependencies[file])
+    if (dependencies) {
+      dependencies.forEach(function(info) {
+        var moduleDefinitionFiles = definedModules[info.name]
+        var fileProperties = moduleProperties[info.name]
+        console.log(moduleDefinitionFiles)
+      })
+    }
+
+    return contents
+
     var moduleImports = {}
     var moduleVars = {}
     if (dependencies) {
@@ -367,60 +438,61 @@ module.exports = function(opts, callback) {
         var moduleDefinitionFiles = definedModules[info.name]
         var fileProperties = moduleProperties[info.name]
         var moduleName = info.name
-        if (moduleImports[moduleName]) {
-          var p = /(\d)?$/
-          var m = moduleName.match(p)
-          // add or increment a trailing number if there's already a module being imported by this name.
-          moduleName = moduleName.replace(p, parseInt(m[1] || '1', 10) + 1)
+
+        var addImport = function(file, property) {
+          if (moduleImports[moduleName]) {
+            var p = /(\d)?$/
+            var m = moduleName.match(p)
+            // add or increment a trailing number if there's already a module being imported by this name.
+            moduleName = moduleName.replace(p, parseInt(m[1] || '1', 10) + 1)
+          }
+          moduleVars[info.name] = moduleVars[info.name] || []
+          moduleVars[info.name].push({
+            name: moduleName,
+            property: property
+          })
+          moduleImports[moduleName] = file
         }
-        moduleVars[info.name] = moduleVars[info.name] || []
-        moduleVars[info.name].push({
-          name: moduleName,
-          property: info.property
-        })
-        if (info.property) {
-          var file = fileProperties[info.property]
-          // TODO: perhaps we should allow the user to select an option here instead of bailing?
-          if (!file) {
-            throw new Error('Found multiple modules by the same name, but was unable to resolve the dependency based on accessed properties.')
-          } else {
-            moduleImports[moduleName] = file
-          }
+        if (info.properties) {
+          info.properties.forEach(function(prop) {
+            var file = fileProperties[prop]
+            // TODO: perhaps we should allow the user to select an option here instead of bailing?
+            if (!file) {
+              throw new Error('Found multiple modules by the same name (' +info.name+ '), but was unable to resolve the dependency based on accessed property ('+prop+').')
+            } else {
+              addImport(file, prop)
+            }
+          })
         } else {
+          // FIXME: race condition or something causes this to be undefined. Fix & remove logging.
+          if (!moduleDefinitionFiles) console.log('module definition files is undefined. defined modules: ', definedModules, 'info', info)
           if (moduleDefinitionFiles.length > 1) {
-            logger("WARNING: multiple definitions found for module " + moduleName +", resolution may be innacurate.")
+            // TODO: probably allow a user to select a file here too
+            logger("WARNING: multiple definitions found for module " + moduleName +", but couldn't find enough prop info to determine which to use. resolution may be innacurate.")
           }
-          moduleImports[moduleName] = moduleDefinitionFiles[0]
+          addImport(moduleDefinitionFiles[0])
         }
       })
     }
 
+    console.log(moduleImports, moduleVars)
+
     var moduleVar
-    var contents = getContents(file)
-    var output = falafel(contents, falafelOpts, function(node) {
-      // TODO: replace any import commands with a reference to the module variable (from moduleImports)
-      var foundModule = findModuleNodes(node, appName, function(moduleName, def, property) {
-        var names = moduleVars[moduleName]
-        var varName = names[0].name
-        var len = names.length
-        if (len > 1 && property) {
-          for(var i=0;i<len;i++) {
-            if (names[i].property === property) {
-              varName = names[i].name
-              break
-            }
+
+    Object.keys(moduleVars).forEach(function(name) {
+      var definitions = moduleVars[name]
+      definitions.forEach(function(moduleInfo) {
+        contents = findModulePropertyAccess(contents, name, function(prop, node) {
+          if (moduleInfo.property === prop) {
+            node.update(moduleInfo.name)
           }
-        }
-        def.update(varName)
+        })
+        console.log(contents)
       })
-      if (foundModule) {
-        // TODO: probably should verify that we're not defining multiple modules
-        moduleVar = foundModule
-      }
     })
 
     // define modules as vars, and move the content of their closures to the level above.
-    output = falafel(String(output), falafelOpts, function(node) {
+    var output = falafel(contents, falafelOpts, function(node) {
       var moduleDef = marionetteModuleDefinition(node, appName)
       if (moduleDef) {
         // find the nearest ExpressionStatement to the node, which will be the App.module('Name', fn() {}) call.
@@ -470,7 +542,6 @@ module.exports = function(opts, callback) {
             var dependencyPath = imports[varName]
             // resolve relative or absolute paths, otherwise we assume this is available by name.
             if (/^[\/\.]/.test(dependencyPath)) {
-              logger(file, dependencyPath)
               dependencyPath = path.relative(path.dirname(file), dependencyPath)
               // trim .js extension and add leading relative path if we're in the same directory.
               dependencyPath = dependencyPath.replace(/\.js$/, '').replace(/(^\w)/, './$1')
