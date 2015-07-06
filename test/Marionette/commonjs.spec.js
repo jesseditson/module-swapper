@@ -82,32 +82,41 @@ describe('Marionette modules -> commonjs', function() {
     it('should properly export the app and module names.', function(done) {
       moduleSwapper(opts('basic'), function(err, files) {
         assert.ifError(err)
+        var count = 0
         for (var f in files) {
           if (isFile(f, 'app.js')) {
+            count++
             assertContainsLine(files[f], 'module.exports = App;')
           } else if (isFile(f, 'module.js')) {
+            count++
             assertContainsLine(files[f], 'module.exports = Module;')
           } else if (isFile(f, 'module2.js')) {
+            count++
             assertContainsLine(files[f], 'module.exports = AnotherModule;')
           }
         }
+        assert.equal(count, 3, 'did not find required files.')
         done()
       })
     })
 
-    it ('should import the right modules and replace the module calls', function(done) {
+    it('should import the right modules and replace the module calls', function(done) {
       moduleSwapper(opts('basic'), function(err, files, inFiles) {
+        var count = 0
         assert.ifError(err)
         for (var f in files) {
           if (isFile(f, 'module.js')) {
+            count++
             assertContainsLine(files[f], "var App = require('./app');")
           } else if (isFile(f, 'module2.js')) {
+            count++
             assertContainsLine(files[f], "var App = require('./app');")
             assertContainsLine(files[f], "var MyModuleName = require('./module');")
             assertContainsLine(files[f], 'var anotherModule = MyModuleName')
           }
         }
         if (diff) diff(inFiles, files, fixtureBase)
+        assert.equal(count, 2, 'did not find required files.')
         done()
       })
     })
@@ -119,11 +128,14 @@ describe('Marionette modules -> commonjs', function() {
     it ('should use the correct version of the file based on what properties were accessed', function(done) {
       moduleSwapper(opts('multipleDefinitions'), function(err, files, inFiles) {
         assert.ifError(err)
+        var count = 0
         for (var f in files) {
           if (isFile(f, 'module2.js')) {
+            count++
             // make sure we're not importing twice
             assertNotContainsLine(files[f], "var MyModuleName2 = require('./module');")
           } else if (isFile(f, 'module3.js')) {
+            count++
             assertContainsLine(files[f], "var App = require('./app');")
             assertContainsLine(files[f], "var MyModuleName = require('./module2');")
             assertContainsLine(files[f], "var MyModuleName2 = require('./module');")
@@ -132,26 +144,32 @@ describe('Marionette modules -> commonjs', function() {
           }
         }
         if (diff) diff(inFiles, files, fixtureBase)
+        assert.equal(count, 2, 'did not find required files.')
         done()
       })
     })
 
-    it.only('should correctly calculate the dependency if the module was assigned to a variable', function(done) {
+    it('should correctly calculate the dependency if the module was assigned to a variable', function(done) {
       moduleSwapper(opts('multipleDefinitionsComplex'), function(err, files, inFiles) {
         assert.ifError(err)
+        var count = 0
         for (var f in files) {
           if (isFile(f, 'module2.js')) {
+            count++
             // make sure we're not importing twice
             assertNotContainsLine(files[f], "var MyModuleName2 = require('./module');")
           } else if (isFile(f, 'module3.js')) {
+            count++
             assertContainsLine(files[f], "var App = require('./app');")
-            assertContainsLine(files[f], "var MyModuleName = require('./module2');")
-            assertContainsLine(files[f], "var MyModuleName2 = require('./module');")
-            assertContainsLine(files[f], 'var aFunction = MyModuleName.someFunction')
-            assertContainsLine(files[f], 'var aProp = MyModuleName2.aProperty')
+            assertContainsLine(files[f], "var MyModuleName = require('./module');")
+            assertContainsLine(files[f], "var MyModuleName2 = require('./module2');")
+            assertContainsLine(files[f], "var theModule = MyModuleName")
+            assertContainsLine(files[f], 'var aFunction = MyModuleName2.someFunction')
+            assertContainsLine(files[f], 'var aProp = MyModuleName.aProperty')
           }
         }
         if (diff) diff(inFiles, files, fixtureBase)
+        assert.equal(count, 2, 'did not find required files.')
         done()
       })
     })
