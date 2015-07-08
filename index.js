@@ -59,11 +59,12 @@ var processFileDependencies = function(file, contents, appName) {
     var properties = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, module.varName).properties
     definedModules[m].properties = properties[module.varName] || []
   })
-  var accessedProperties = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents)
+  var accessedProperties = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, null, {appName: appName})
   logger('base dependencies -> ' + needsRequire)
-  logger('module dependencies -> ' + Object.keys(accessedProperties.properties).map(function(name) {
-    return getModuleName(name, accessedProperties.moduleMap) + ' (' + accessedProperties.properties[name] + ')'
-  }))
+  logger('module dependencies -> ' + Object.keys(accessedProperties.properties).reduce(function(a, name) {
+    a.push(' ' + getModuleName(name, accessedProperties.moduleMap) + ' (' + accessedProperties.properties[name] + ')')
+    return a
+  }, []))
   return {
     defined: definedModules,
     accessed: accessedProperties,
@@ -102,6 +103,7 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
   var requiresProperties = {}
 
   var out = findModulePropertyAccess.call({falafelOpts: falafelOpts}, info.contents, info.accessed.moduleMap, {
+    appName: info.appName,
     propertyFn: function(propertyName, node, module, varMap) {
       var moduleName = getModuleName(module.name, varMap)
       var propertyMap = filesMap[moduleName]
@@ -139,6 +141,7 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
     }
   })
   out = findModulePropertyAccess.call({falafelOpts: falafelOpts}, String(out), info.accessed.moduleMap, {
+    appName: info.appName,
     reassignmentFn: function(newName, name, isRoot, node) {
       var propertyMap = filesMap[name]
       var moduleFiles = []
@@ -148,6 +151,7 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
       if (!propertyMap) {
         logger('WARNING: unable to find required dependency '+ name)
       } else {
+        console.log(propertyMap, moduleFiles)
         if (moduleFiles.length > 1) logger('WARNING: found more than one definition of ' + name + ' and was unable to determine which to use based on property access. Resolution may be innacurate.')
         requires[name] = moduleFiles[0]
         node.update(name)
@@ -333,7 +337,7 @@ module.exports = function(opts, callback) {
        // if we have deferred any files and we found the app, process them now.
        var processFiles = needsProcess
        needsProcess = []
-       needsProcess.forEach(processFiles)
+       needsProcess.forEach(processFile)
      }
 
     logger('------------------------------------------------------------------------')

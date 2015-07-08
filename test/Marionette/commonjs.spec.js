@@ -68,7 +68,7 @@ describe('Marionette modules -> commonjs', function() {
     })
   })
 
-  describe("basic app (using App.module('name') syntax)", function() {
+  describe("app using App.module('name') syntax", function() {
 
     it('should process all files', function(done) {
       moduleSwapper(opts('basic'), function(err, files) {
@@ -174,6 +174,42 @@ describe('Marionette modules -> commonjs', function() {
       })
     })
 
+  })
+
+  describe("app using dot syntax for module access", function() {
+
+    it('should properly export the app and module names.', function(done) {
+      moduleSwapper(opts('dotSyntaxAccess'), function(err, files) {
+        assert.ifError(err)
+        var count = 0
+        for (var f in files) {
+          if (isFile(f, 'app.js')) {
+            count++
+            assertContainsLine(files[f], 'module.exports = App;')
+          } else if (isFile(f, 'module.js')) {
+            count++
+            assertContainsLine(files[f], 'module.exports = Module;')
+          } else if (isFile(f, 'module2.js')) {
+            count++
+            assertContainsLine(files[f], "var MyModuleName = require('./module');")
+            assertContainsLine(files[f], 'var someProp = MyModuleName.aProperty')
+            assertContainsLine(files[f], 'module.exports = Module;')
+          } else if (isFile(f, 'module3.js')) {
+            count++
+            assertContainsLine(files[f], "var MyModuleName2 = require('./module2');")
+            assertContainsLine(files[f], "var MyModuleName = require('./module');")
+            assertContainsLine(files[f], 'var theModule = MyModuleName')
+            assertContainsLine(files[f], 'var prop = MyModuleName.aProperty')
+            assertContainsLine(files[f], 'var aFunction = MyModuleName2.someFunction')
+            assertContainsLine(files[f], 'var reassigned = theModule')
+            assertContainsLine(files[f], 'var aProp = MyModuleName.aProperty')
+            assertContainsLine(files[f], 'module.exports = Module;')
+          }
+        }
+        assert.equal(count, 4, 'did not find required files.')
+        done()
+      })
+    })
   })
 
 })
