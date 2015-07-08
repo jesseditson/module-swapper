@@ -12,6 +12,7 @@ var isMarionetteAppMemberExpression = require('./lib/isMarionetteAppMemberExpres
 var findModuleNodes = require('./lib/findModuleNodes')
 var marionetteModuleDefinition = require('./lib/marionetteModuleDefinition')
 var getModuleVars = require('./lib/getModuleVars')
+var getModuleName = require('./lib/getModuleName')
 
 var falafelOpts
 var logger
@@ -23,14 +24,6 @@ var accessedMarionetteModules = function(node, appName) {
     modules.push({name: moduleName})
   })
   return {module: moduleVar, modules: modules}
-}
-
-
-var getModuleName = function(module, moduleMap) {
-  while(typeof moduleMap[module] === 'string') {
-    module = moduleMap[module]
-  }
-  return module
 }
 
 var processFileDependencies = function(file, contents, appName) {
@@ -56,15 +49,16 @@ var processFileDependencies = function(file, contents, appName) {
   })
   Object.keys(definedModules).forEach(function(m) {
     var module = definedModules[m]
-    var properties = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, module.varName).properties
-    definedModules[m].properties = properties[module.varName] || []
+    var declarations = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, module.varName).declarations
+    definedModules[m].properties = declarations[module.varName] || []
   })
   var accessedProperties = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, null, {appName: appName})
   logger('base dependencies -> ' + needsRequire)
-  logger('module dependencies -> ' + Object.keys(accessedProperties.properties).reduce(function(a, name) {
+  logger('module properties -> ' + Object.keys(accessedProperties.properties).reduce(function(a, name) {
     a.push(' ' + getModuleName(name, accessedProperties.moduleMap) + ' (' + accessedProperties.properties[name] + ')')
     return a
   }, []))
+  logger('assigned modules -> ' + Object.keys(accessedProperties.moduleMap).filter(function(m) { return accessedProperties.moduleMap[m] === true }))
   return {
     defined: definedModules,
     accessed: accessedProperties,
@@ -124,7 +118,9 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
             var m = moduleName.match(p)
             // add or increment a trailing number if there's already a module being imported by this name.
             var propertyModule = moduleName.replace(p, parseInt(m[1] || '1', 10) + 1)
+            // console.log('adding', moduleName, 'for access of ', propertyName, '->', propertyModule)
             requiresProperties[moduleName][propertyName] = propertyModule
+            // console.log('requiring', propertyModule, propertyMap[propertyName])
             requires[propertyModule] = propertyMap[propertyName]
             requiredModule = propertyModule
           } else {
@@ -143,15 +139,26 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
   out = findModulePropertyAccess.call({falafelOpts: falafelOpts}, String(out), info.accessed.moduleMap, {
     appName: info.appName,
     reassignmentFn: function(newName, name, isRoot, node) {
+      // don't update if this isn't the root module.
+      if (!isRoot) return
+      // this is called whenever we find a node using a module.
+      // TODO: we need to know what property this node is using.
+      var variableProps = info.accessed.variableProperties[name]
       var propertyMap = filesMap[name]
-      var moduleFiles = []
-      for (var p in propertyMap) {
-        moduleFiles.push(propertyMap[p])
-      }
       if (!propertyMap) {
         logger('WARNING: unable to find required dependency '+ name)
       } else {
-        console.log(propertyMap, moduleFiles)
+        var moduleFiles
+        if (variableProps) {
+          moduleFiles = variableProps.map(function(prop) {
+           return propertyMap[prop]
+         })
+        } else {
+          moduleFiles = Object.keys(propertyMap).reduce(function(a, prop) {
+            if (!~a.indexOf(propertyMap[prop])) a.push(propertyMap[prop])
+            return a
+          }, [])
+        }
         if (moduleFiles.length > 1) logger('WARNING: found more than one definition of ' + name + ' and was unable to determine which to use based on property access. Resolution may be innacurate.')
         requires[name] = moduleFiles[0]
         node.update(name)
@@ -247,34 +254,34 @@ module.exports = function(opts, callback) {
   finder.on('end', function() {
     if (!appName || !appFile) return completedCallback(new Error('No Marionette app found.'))
     logger('--------------------- COMPLETED ---------------------------------')
-    // This is innacurate because it includes local variables. If we want this logging we'll need to resolve that.
-    // var transformedFiles = {}
-    // var accessedModules = {}
-    // var definedModules = Object.keys(files).reduce(function(o, f) {
-    //   var file = files[f]
-    //   for (var d in file.defined) {
-    //     o[d] = file.defined[d]
-    //   }
-    //   for (var a in file.accessed.definitions) {
-    //     if (!globalModuleMap[a]) accessedModules[a] = file.accessed.definitions[a]
-    //   }
-    //   return o
-    // }, {})
-    // logger("Application: ", appName)
-    // var definedKeys = Object.keys(definedModules)
-    // logger("Defined Modules: ", definedKeys)
-    // var accessedKeys = Object.keys(accessedModules)
-    // logger("Accessed Modules: ", accessedKeys)
-    // var unusedModules = definedKeys.filter(function(k) { return !accessedModules[k] })
-    // var undefinedModules = accessedKeys.filter(function(k) { return !definedModules[k] })
-    // logger("Unused modules: ", unusedModules)
-    // logger("Undefined modules: ", undefinedModules)
+    var transformedFiles = {}
+    var accessedModules = {}
+    var definedModules = Object.keys(files).reduce(function(o, f) {
+      var file = files[f]
+      for (var d in file.defined) {
+        o[d] = file.defined[d]
+      }
+      for (var a in file.accessed.modules) {
+        if (!globalModuleMap[a]) accessedModules[a] = file.accessed.modules[a]
+      }
+      return o
+    }, {})
+    logger("Application: ", appName)
+    var definedKeys = Object.keys(definedModules)
+    logger("Defined Modules: ", definedKeys)
+    var accessedKeys = Object.keys(accessedModules)
+    logger("Accessed Modules: ", accessedKeys)
+    var unusedModules = definedKeys.filter(function(k) { return !accessedModules[k] })
+    var undefinedModules = accessedKeys.filter(function(k) { return !definedModules[k] })
+    logger("Unused modules: ", unusedModules)
+    logger("Undefined modules: ", undefinedModules)
 
     // resolve our dependencies
     var filesMap = Object.keys(files).reduce(function(o, file) {
       var info = files[file]
       Object.keys(info.defined).forEach(function(name) {
         o[name] = o[name] || {}
+        if (!o[name].__filename) o[name].__filename = file
         info.defined[name].properties.forEach(function(prop) {
           if (o[name][prop]) throw new Error('Found multiple definitions of Module ' + name + ' property ' + prop)
           o[name][prop] = file
@@ -282,6 +289,8 @@ module.exports = function(opts, callback) {
       })
       return o
     }, {})
+
+    logger("files: ", filesMap)
 
     var outFiles = {}
     var inFiles = {}

@@ -53,6 +53,17 @@ var assertContainsLine = function(file, line) {
   assert(containsLine(file, line), 'Failed to find ' + line + ' in:\n' + file)
 }
 
+var assertContainsFile = function(files, file) {
+  files = Object.keys(files).map(function(f) {
+    return f.split('/').slice(-1)[0]
+  })
+  assert(~files.indexOf(file), 'Expected to find file ' + file + ' in ' + files)
+}
+
+var assertContainsFiles = function(files, find) {
+  find.forEach(function(f) { assertContainsFile(files, f) })
+}
+
 var isFile = function(input, name) {
   var p = new RegExp(name.replace('.','\\.') + '$', 'i')
   return p.test(input)
@@ -82,41 +93,34 @@ describe('Marionette modules -> commonjs', function() {
     it('should properly export the app and module names.', function(done) {
       moduleSwapper(opts('basic'), function(err, files) {
         assert.ifError(err)
-        var count = 0
+        assertContainsFiles(files, ['app.js', 'module.js', 'module2.js'])
         for (var f in files) {
           if (isFile(f, 'app.js')) {
-            count++
             assertContainsLine(files[f], 'module.exports = App;')
           } else if (isFile(f, 'module.js')) {
-            count++
             assertContainsLine(files[f], 'module.exports = Module;')
           } else if (isFile(f, 'module2.js')) {
-            count++
             assertContainsLine(files[f], 'module.exports = AnotherModule;')
           }
         }
-        assert.equal(count, 3, 'did not find required files.')
         done()
       })
     })
 
     it('should import the right modules and replace the module calls', function(done) {
       moduleSwapper(opts('basic'), function(err, files, inFiles) {
-        var count = 0
         assert.ifError(err)
+        assertContainsFiles(files, ['app.js', 'module.js', 'module2.js'])
         for (var f in files) {
           if (isFile(f, 'module.js')) {
-            count++
             assertContainsLine(files[f], "var App = require('./app');")
           } else if (isFile(f, 'module2.js')) {
-            count++
             assertContainsLine(files[f], "var App = require('./app');")
             assertContainsLine(files[f], "var MyModuleName = require('./module');")
             assertContainsLine(files[f], 'var anotherModule = MyModuleName')
           }
         }
         if (diff) diff(inFiles, files, fixtureBase)
-        assert.equal(count, 2, 'did not find required files.')
         done()
       })
     })
@@ -128,14 +132,12 @@ describe('Marionette modules -> commonjs', function() {
     it ('should use the correct version of the file based on what properties were accessed', function(done) {
       moduleSwapper(opts('multipleDefinitions'), function(err, files, inFiles) {
         assert.ifError(err)
-        var count = 0
+        assertContainsFiles(files, ['app.js', 'module.js', 'module2.js', 'module3.js'])
         for (var f in files) {
           if (isFile(f, 'module2.js')) {
-            count++
             // make sure we're not importing twice
             assertNotContainsLine(files[f], "var MyModuleName2 = require('./module');")
           } else if (isFile(f, 'module3.js')) {
-            count++
             assertContainsLine(files[f], "var App = require('./app');")
             assertContainsLine(files[f], "var MyModuleName = require('./module2');")
             assertContainsLine(files[f], "var MyModuleName2 = require('./module');")
@@ -144,7 +146,6 @@ describe('Marionette modules -> commonjs', function() {
           }
         }
         if (diff) diff(inFiles, files, fixtureBase)
-        assert.equal(count, 2, 'did not find required files.')
         done()
       })
     })
@@ -152,14 +153,12 @@ describe('Marionette modules -> commonjs', function() {
     it('should correctly calculate the dependency if the module was assigned to a variable', function(done) {
       moduleSwapper(opts('multipleDefinitionsComplex'), function(err, files, inFiles) {
         assert.ifError(err)
-        var count = 0
+        assertContainsFiles(files, ['app.js', 'module.js', 'module2.js', 'module3.js'])
         for (var f in files) {
           if (isFile(f, 'module2.js')) {
-            count++
             // make sure we're not importing twice
             assertNotContainsLine(files[f], "var MyModuleName2 = require('./module');")
           } else if (isFile(f, 'module3.js')) {
-            count++
             assertContainsLine(files[f], "var App = require('./app');")
             assertContainsLine(files[f], "var MyModuleName = require('./module');")
             assertContainsLine(files[f], "var MyModuleName2 = require('./module2');")
@@ -169,7 +168,6 @@ describe('Marionette modules -> commonjs', function() {
           }
         }
         if (diff) diff(inFiles, files, fixtureBase)
-        assert.equal(count, 2, 'did not find required files.')
         done()
       })
     })
@@ -179,23 +177,19 @@ describe('Marionette modules -> commonjs', function() {
   describe("app using dot syntax for module access", function() {
 
     it('should properly export the app and module names.', function(done) {
-      moduleSwapper(opts('dotSyntaxAccess'), function(err, files) {
+      moduleSwapper(opts('dotSyntaxAccess'), function(err, files, inFiles) {
         assert.ifError(err)
-        var count = 0
+        assertContainsFiles(files, ['app.js', 'module.js', 'module2.js', 'module3.js'])
         for (var f in files) {
           if (isFile(f, 'app.js')) {
-            count++
             assertContainsLine(files[f], 'module.exports = App;')
           } else if (isFile(f, 'module.js')) {
-            count++
             assertContainsLine(files[f], 'module.exports = Module;')
           } else if (isFile(f, 'module2.js')) {
-            count++
             assertContainsLine(files[f], "var MyModuleName = require('./module');")
             assertContainsLine(files[f], 'var someProp = MyModuleName.aProperty')
             assertContainsLine(files[f], 'module.exports = Module;')
           } else if (isFile(f, 'module3.js')) {
-            count++
             assertContainsLine(files[f], "var MyModuleName2 = require('./module2');")
             assertContainsLine(files[f], "var MyModuleName = require('./module');")
             assertContainsLine(files[f], 'var theModule = MyModuleName')
@@ -206,7 +200,7 @@ describe('Marionette modules -> commonjs', function() {
             assertContainsLine(files[f], 'module.exports = Module;')
           }
         }
-        assert.equal(count, 4, 'did not find required files.')
+        if (diff) diff(inFiles, files, fixtureBase)
         done()
       })
     })
