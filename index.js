@@ -58,7 +58,7 @@ var processFileDependencies = function(file, contents, appName) {
     a.push(' ' + getModuleName(name, accessedProperties.moduleMap) + ' (' + accessedProperties.properties[name] + ')')
     return a
   }, []))
-  logger('assigned modules -> ' + Object.keys(accessedProperties.moduleMap).filter(function(m) { return accessedProperties.moduleMap[m] === true }))
+  // logger('assigned modules -> ' + Object.keys(accessedProperties.moduleMap).filter(function(m) { return accessedProperties.moduleMap[m] === true }))
   return {
     defined: definedModules,
     accessed: accessedProperties,
@@ -248,11 +248,11 @@ module.exports = function(opts, callback) {
   }
 
   var needsProcess = []
+  var finderCompleted
   var files = {}
   var appName, appFile
 
-  finder.on('end', function() {
-    if (!appName || !appFile) return completedCallback(new Error('No Marionette app found.'))
+  var completeProcessing = function() {
     logger('--------------------- COMPLETED ---------------------------------')
     var transformedFiles = {}
     var accessedModules = {}
@@ -283,14 +283,12 @@ module.exports = function(opts, callback) {
         o[name] = o[name] || {}
         if (!o[name].__filename) o[name].__filename = file
         info.defined[name].properties.forEach(function(prop) {
-          if (o[name][prop]) throw new Error('Found multiple definitions of Module ' + name + ' property ' + prop)
+          if (o[name][prop]) throw new Error('Found multiple definitions of Module ' + name + ' property ' + prop + '\n' + JSON.stringify(info, null, 2))
           o[name][prop] = file
         })
       })
       return o
     }, {})
-
-    logger("files: ", filesMap)
 
     var outFiles = {}
     var inFiles = {}
@@ -320,34 +318,10 @@ module.exports = function(opts, callback) {
       }
     })
     completedCallback(null, transformedFiles, fileContents)
-  })
+  }
 
   var processFile = function (file) {
-    if (fileFilter && !fileFilter.test(file)) return
-    if (!~extensions.indexOf(path.extname(file))) return
-    file = path.resolve(process.cwd(), file)
     var contents = getContents(file)
-
-    // find our app name
-    falafel(contents, falafelOpts, function(node) {
-       var nodeAppName = isMarionetteApp(node)
-       if (nodeAppName) {
-         if (appName) throw new Error('Multiple app definitions (' + appName + ', ' + nodeAppName + ') found. Unable to calculate dependencies.')
-         globalModuleMap[nodeAppName] = file
-         appName = nodeAppName
-         appFile = file
-         logger('found application definition: ' + appName)
-       }
-     })
-     if (!appName) {
-       // if we haven't found the app, just defer processing of this file.
-       return needsProcess.push(file)
-     } else if (needsProcess.length) {
-       // if we have deferred any files and we found the app, process them now.
-       var processFiles = needsProcess
-       needsProcess = []
-       needsProcess.forEach(processFile)
-     }
 
     logger('------------------------------------------------------------------------')
     logger('processing ' + file)
@@ -362,7 +336,31 @@ module.exports = function(opts, callback) {
     }
   }
 
-  finder.on('file', processFile)
+  finder.on('end', function() {
+    if (!appName || !appFile) return completedCallback(new Error('No Marionette app found.'))
+    needsProcess.forEach(processFile)
+    completeProcessing()
+  })
+
+  finder.on('file', function(file) {
+    if (fileFilter && !fileFilter.test(file)) return
+    if (!~extensions.indexOf(path.extname(file))) return
+    file = path.resolve(process.cwd(), file)
+    var contents = getContents(file)
+
+    // find our app name
+    falafel(contents, falafelOpts, function(node) {
+      var nodeAppName = isMarionetteApp(node)
+      if (nodeAppName) {
+      if (appName) throw new Error('Multiple app definitions (' + appName + ', ' + nodeAppName + ') found. Unable to calculate dependencies.')
+        globalModuleMap[nodeAppName] = file
+        appName = nodeAppName
+        appFile = file
+        logger('found application definition: ' + appName)
+      }
+    })
+    needsProcess.push(file)
+  })
 
   finder.on('directory', function (dir, stat, stop) {
     var base = path.basename(dir)
