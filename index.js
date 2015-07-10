@@ -142,7 +142,6 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
       // don't update if this isn't the root module.
       if (!isRoot) return
       // this is called whenever we find a node using a module.
-      // TODO: we need to know what property this node is using.
       var variableProps = info.accessed.variableProperties[name]
       var propertyMap = filesMap[name]
       if (!propertyMap) {
@@ -188,8 +187,12 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
         // alternatively, this file could just run the jscs fixer after refactoring, which would probably be better.
         return n.source().replace(/\n\s{4}/g,'\n')
       })
-      // TODO: probably should handle making our own name if this is not defined.
-      moduleVar = node.params[0].name
+      if (node.params[0]) {
+        moduleVar = node.params[0].name
+      } else {
+        var f = path.basename(file).replace(path.extname(file), '')
+        moduleVar = f.slice(0, 1).toUpperCase() + f.slice(1)
+      }
       newContent.unshift('var ' + moduleVar + ' = {};\n')
       newContent.unshift('/* module definition */')
       newContent = newContent.join('\n')
@@ -283,7 +286,7 @@ module.exports = function(opts, callback) {
         o[name] = o[name] || {}
         if (!o[name].__filename) o[name].__filename = file
         info.defined[name].properties.forEach(function(prop) {
-          if (o[name][prop]) throw new Error('Found multiple definitions of Module ' + name + ' property ' + prop + '\n' + JSON.stringify(info, null, 2))
+          if (o[name][prop]) throw new Error('Found multiple definitions of Module ' + name + ' property ' + prop)
           o[name][prop] = file
         })
       })
