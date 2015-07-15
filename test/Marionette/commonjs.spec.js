@@ -5,27 +5,9 @@ var moduleSwapper = require('../..')
 
 var fixtureBase = __dirname + '/fixtures/'
 
-var jsdiff, diff
+var diff
 if (~process.argv.indexOf('--diff')) {
-  require('colors')
-  jsdiff = require('diff')
-  diff = function(ifiles, ofiles, base) {
-    // TODO: maybe use difflines?
-    for (var f in ifiles) {
-      var diff = jsdiff.diffLines(ifiles[f], ofiles[f])
-      process.stderr.write(('\n---------- diff:\n' + path.relative(base, f)).yellow + '\n\n')
-      diff.forEach(function(part){
-        // green for additions, red for deletions
-        // grey for common parts
-        var color = part.added ? 'green' :
-            part.removed ? 'red' : 'grey'
-        var pre = part.added ? '+' : part.removed ? '-' : ' '
-        String(part.value).split('\n').forEach(function(l) {
-          if (l.length > 0) process.stderr.write(('' + pre + '   ' + l)[color] + '\n')
-        })
-      })
-    }
-  }
+  diff = require('../../diff')
 }
 
 var opts = function(fixture, o) {
@@ -174,10 +156,10 @@ describe('Marionette modules -> commonjs', function() {
 
   })
 
-  describe("app using dot syntax for module access", function() {
+  describe.only("when properties are set on modules via `this`", function() {
 
     it('should properly export the app and module names.', function(done) {
-      moduleSwapper(opts('dotSyntaxAccess'), function(err, files, inFiles) {
+      moduleSwapper(opts('thisProperty'), function(err, files, inFiles) {
         assert.ifError(err)
         assertContainsFiles(files, ['app.js', 'module.js', 'module2.js', 'module3.js'])
         for (var f in files) {

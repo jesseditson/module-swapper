@@ -1,11 +1,55 @@
 #!/usr/bin/env node
-var args = process.argv.slice(2)
+var argv = require('yargs').argv
+
+var dirname
+if (argv._[0]) {
+  dirname = argv._[0]
+} else if (argv.diff && argv.diff !== true) {
+  dirname = argv.diff
+} else {
+  dirname = process.cwd()
+}
+
+var modules = {
+  'Backbone': 'backbone',
+  '$': 'jquery',
+  'moment': 'moment',
+  '_': 'underscore',
+  'Marionette': 'marionette',
+  'accounting': 'accounting',
+  'Handlebars': 'handlebars',
+  'Highcharts': 'highcharts',
+  'Backgrid': 'backgrid',
+  'numeral': 'numeral',
+  'Raven': 'raven',
+  'React': 'react',
+  'ga': 'ga',
+  'FB': 'facebook',
+  'crossfilter': 'crossfilter',
+  'd3': 'd3'
+}
+
+var globals = {
+  'sessionStorage': true,
+  'document': true,
+  'window': true,
+  'localStorage': true,
+  'location': true,
+  'undefined': true
+}
 
 require('../index.js')({
-  dir: args[0] || '.',
+  dir: dirname,
   extensions: null,
   loader: null,
-  modules: null,
+  modules: modules,
   falafelOpts: null,
-  replaceInline: false
+  replaceInline: false,
+  globals: globals,
+  fileFilter: /(\/app|modelView|home-view\.jsx|adcreative|entities\/creative)/
+}, function(err, files, inFiles) {
+  if (err) throw err
+  if (argv.diff) {
+    require('../diff')(inFiles, files, dirname)
+  }
 })

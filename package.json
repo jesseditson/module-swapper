@@ -32,7 +32,8 @@
     "diff": "^1.4.0",
     "falafel": "jesseditson/node-falafel#custom_parser",
     "findit": "^2.0.0",
-    "scoped": "^3.0.2"
+    "scoped": "^3.0.2",
+    "yargs": "^3.15.0"
   },
   "devDependencies": {
     "debug": "^2.2.0"

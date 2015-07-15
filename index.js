@@ -26,34 +26,59 @@ var accessedMarionetteModules = function(node, appName) {
   return {module: moduleVar, modules: modules}
 }
 
+var expectedGlobals = {}
+
 var processFileDependencies = function(file, contents, appName) {
   var needsRequire = []
   // figure out our top level requires
   falafel(contents, falafelOpts, scoped(function(scope, node) {
     needsRequire = needsRequire.concat(scope.uses.filter(function(variable) {
+      // check if this variable was defined anywhere in this scope
+      var wasDefined = false
+      variable.nodes.forEach(function(info) {
+        if (info.kind === 'explicit') wasDefined = true
+      })
+      if (wasDefined) return false
       // not a native global, we need to require this.
-      return eval('typeof ' + variable.name) === 'undefined'
+      if (expectedGlobals[variable.name]) return false
+      if (eval('typeof ' + variable.name) === 'undefined') return true
     }).map(function(v) { return v.name }))
   }))
+  var appProperties = {}
   var definedModules = {}
   var accessedModules = {}
   // figure out what marionette modules we're using.
+  var moduleAppName
   falafel(contents, falafelOpts, function(node) {
-    var defined = marionetteModuleDefinition(node, appName)
+    if (!moduleAppName) {
+      var moduleVars = getModuleVars(node, appName)
+      if (moduleVars.appVar) moduleAppName = moduleVars.appVar
+    }
+    var defined = marionetteModuleDefinition(node, [appName, moduleAppName])
     if (defined) {
       definedModules[defined.name] = {
         varName: defined.module
       }
-      logger('found module definition ' + defined.name)
+    }
+    if (isMarionetteAppMemberExpression(node, [appName, moduleAppName])) {
+      if (node.parent.type === 'AssignmentExpression') {
+        appProperties[node.property.name] = file
+      }
     }
   })
   Object.keys(definedModules).forEach(function(m) {
     var module = definedModules[m]
-    var declarations = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, module.varName).declarations
-    definedModules[m].properties = declarations[module.varName] || []
+    var info = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, module.varName, {appName: appName})
+    var declarations = info.declarations
+    definedModules[m].properties = (declarations[module.varName] || []).concat(info.defined)
   })
   var accessedProperties = findModulePropertyAccess.call({falafelOpts: falafelOpts}, contents, null, {appName: appName})
+  logger('defines modules -> ' + Object.keys(definedModules).reduce(function(a, name) {
+    a.push(' ' + name + ' (' + definedModules[name].properties + ')')
+    return a
+  }, []))
   logger('base dependencies -> ' + needsRequire)
+  // logger('module dependencies -> ' + Object.keys())
   logger('module properties -> ' + Object.keys(accessedProperties.properties).reduce(function(a, name) {
     a.push(' ' + getModuleName(name, accessedProperties.moduleMap) + ' (' + accessedProperties.properties[name] + ')')
     return a
@@ -62,7 +87,8 @@ var processFileDependencies = function(file, contents, appName) {
   return {
     defined: definedModules,
     accessed: accessedProperties,
-    required: needsRequire
+    required: needsRequire,
+    appProperties: appProperties
   }
 }
 
@@ -192,6 +218,12 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
       } else {
         var f = path.basename(file).replace(path.extname(file), '')
         moduleVar = f.slice(0, 1).toUpperCase() + f.slice(1)
+        // strip non-word characters and camelcase
+        var re = /[^\w]/g, m
+        while (m = re.exec(moduleVar)) {
+          moduleVar = moduleVar.slice(0, m.index) + moduleVar.slice(m.index + 1, m.index + 2).toUpperCase() + moduleVar.slice(m.index + 2)
+        }
+        logger('WARNING: module was not named explicitly, making up a name based on the file: ', moduleVar)
       }
       newContent.unshift('var ' + moduleVar + ' = {};\n')
       newContent.unshift('/* module definition */')
@@ -241,6 +273,8 @@ module.exports = function(opts, callback) {
     '_': 'underscore',
     'Marionette': 'marionette'
   }
+
+  expectedGlobals = opts.globals || {}
   var replaceInline = opts.replaceInline
   var fileFilter = opts.fileFilter
   var finder = findit(opts.dir || '.')
@@ -355,11 +389,15 @@ module.exports = function(opts, callback) {
     falafel(contents, falafelOpts, function(node) {
       var nodeAppName = isMarionetteApp(node)
       if (nodeAppName) {
-      if (appName) throw new Error('Multiple app definitions (' + appName + ', ' + nodeAppName + ') found. Unable to calculate dependencies.')
+        if (appName) {
+          console.error(file + ' ' + node.parent.source())
+          throw new Error('Multiple app definitions (' + appName + ', ' + nodeAppName + ') found. Unable to calculate dependencies.')
+        }
         globalModuleMap[nodeAppName] = file
         appName = nodeAppName
         appFile = file
         logger('found application definition: ' + appName)
+        logger('(' +file + ' ' + node.parent.source() + ')')
       }
     })
     needsProcess.push(file)
