@@ -26,7 +26,8 @@ var modules = {
   'ga': 'ga',
   'FB': 'facebook',
   'crossfilter': 'crossfilter',
-  'd3': 'd3'
+  'd3': 'd3',
+  'dc': 'dc'
 }
 
 var globals = {
@@ -35,7 +36,12 @@ var globals = {
   'window': true,
   'localStorage': true,
   'location': true,
-  'undefined': true
+  'undefined': true,
+  'FileReader': true,
+  /* UMD */
+  'define': true,
+  /* Advisor */
+  'Helpers': true
 }
 
 require('../index.js')({
@@ -46,7 +52,7 @@ require('../index.js')({
   falafelOpts: null,
   replaceInline: false,
   globals: globals,
-  fileFilter: /(\/app|modelView|home-view\.jsx|adcreative|entities\/creative)/
+  // fileFilter: /(\/app|backgrid\/cells|language)/
 }, function(err, files, inFiles) {
   if (err) throw err
   if (argv.diff) {

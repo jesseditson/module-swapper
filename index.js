@@ -4,6 +4,8 @@ var acorn = require('acorn-jsx')
 var falafel = require('falafel')
 var scoped = require('scoped')
 var findit = require('findit')
+var readlineSync = require('readline-sync')
+
 
 var isMarionetteApp = require('./lib/isMarionetteApp')
 var findModulePropertyAccess = require('./lib/findModulePropertyAccess')
@@ -92,18 +94,16 @@ var processFileDependencies = function(file, contents, appName) {
   }
 }
 
-var splice = function(str, start, end, add) {
-  return {
-    out: str.slice(0, start) + (add || "") + str.slice(end),
-    difference: (end-start) - add
-  }
+var toVarName = function(str) {
+  // this is naive, but better than doing a real validation as it's a 11,236 character regex.
+  return str.replace(/[^\w\d]/g,'')
 }
 
 var resolveDependencies = function(file, info, globalModules, filesMap) {
   logger('------------- resolving ' + path.relative(process.cwd(), file) + ' ---------------------')
   var globalDependencies = info.required.reduce(function(o, dep) {
     if (!globalModules[dep]) {
-      logger('WARNING: unknown module ' + dep + ', a require statement will not be generated and this variable must be global.')
+      logger(('WARNING: unknown module ' + dep + ', a require statement will not be generated and this variable must be global.').yellow)
     } else {
       o[dep] = globalModules[dep]
     }
@@ -127,13 +127,32 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
     propertyFn: function(propertyName, node, module, varMap) {
       var moduleName = getModuleName(module.name, varMap)
       var propertyMap = filesMap[moduleName]
+      var defaultFile = null
+      if (propertyMap && !propertyMap[propertyName]) {
+        var modules = filesMap[moduleName]
+        var fileNames = Object.keys(modules)
+        var files = Object.keys(fileNames.reduce(function(o, f) { o[modules[f]] = true; return o }, {}))
+        if (files.length === 1) {
+          defaultFile = files[0]
+        } else {
+          var opts = ['SKIP'].concat(files)
+          var answer = readlineSync.keyInSelect(opts, 'Unable to auto-resolve dependency ' + moduleName +' based on access of "' + propertyName + '". Please choose which file has this property:')
+          if (!~answer) {
+            throw new Error('Cancelled.')
+          } else if (answer > 0) {
+            console.log(opts[answer])
+            defaultFile = opts[answer]
+          }
+        }
+      }
+
       if (!propertyMap) {
         if (~info.required.indexOf(moduleName)) return
         var vars = getModuleVars(node, info.appName)
         if (moduleName === vars.appVar || moduleName == vars.moduleVar) return
-        logger('WARNING: unknown module ' + module.name + '. Unable to resolve this dependency.')
-      } else if (!propertyMap[propertyName]) {
-        logger('WARNING: unknown property ' + propertyName + ' accessed on module ' + moduleName + '(via ' +module.name+ '). Unable to resolve this access.')
+        logger(('WARNING: unknown module ' + module.name + '. Unable to resolve this dependency.').yellow)
+      } else if (!propertyMap[propertyName] && !defaultFile) {
+        logger(('WARNING: unknown property ' + propertyName + ' accessed on module ' + moduleName + '(via ' +module.name+ '). Unable to resolve this access.').yellow)
       } else {
         var requiredModule
         if (requiresProperties[moduleName]) {
@@ -143,20 +162,20 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
             var p = /(\d)?$/
             var m = moduleName.match(p)
             // add or increment a trailing number if there's already a module being imported by this name.
-            var propertyModule = moduleName.replace(p, parseInt(m[1] || '1', 10) + 1)
-            // console.log('adding', moduleName, 'for access of ', propertyName, '->', propertyModule)
+            var propertyModule = toVarName(moduleName).replace(p, parseInt(m[1] || '1', 10) + 1)
+            console.log('adding', moduleName, 'for access of', propertyName, '->', propertyModule)
             requiresProperties[moduleName][propertyName] = propertyModule
-            // console.log('requiring', propertyModule, propertyMap[propertyName])
-            requires[propertyModule] = propertyMap[propertyName]
+            console.log('requiring', propertyModule, propertyMap[propertyName] || defaultFile)
+            requires[propertyModule] = propertyMap[propertyName] || defaultFile
             requiredModule = propertyModule
           } else {
             requiredModule = requiresProperties[moduleName][propertyName]
           }
         } else {
           requiresProperties[moduleName] = {}
-          requiresProperties[moduleName][propertyName] = moduleName
-          requires[moduleName] = propertyMap[propertyName]
-          requiredModule = moduleName
+          requiresProperties[moduleName][propertyName] = toVarName(moduleName)
+          requires[toVarName(moduleName)] = propertyMap[propertyName] || defaultFile
+          requiredModule = toVarName(moduleName)
         }
         node.update(requiredModule)
       }
@@ -320,7 +339,7 @@ module.exports = function(opts, callback) {
         o[name] = o[name] || {}
         if (!o[name].__filename) o[name].__filename = file
         info.defined[name].properties.forEach(function(prop) {
-          if (o[name][prop]) throw new Error('Found multiple definitions of Module ' + name + ' property ' + prop)
+          if (o[name][prop] && o[name][prop] !== file) throw new Error('Found multiple definitions of Module ' + name + ' property ' + prop + '\n' + o[name][[prop]] + '\n' + file)
           o[name][prop] = file
         })
       })
@@ -346,15 +365,6 @@ module.exports = function(opts, callback) {
     }, {})
 
     return completedCallback(null, outFiles, inFiles)
-
-    // for each file that defines a module, resolve it's dependencies
-    Object.keys(moduleFiles).forEach(function(file) {
-      transformedFiles[file] = resolveFileDependencies(file, true)
-      if (replaceInline) {
-        fs.writeFileSync(file, transformedFiles[file])
-      }
-    })
-    completedCallback(null, transformedFiles, fileContents)
   }
 
   var processFile = function (file) {
@@ -413,7 +423,6 @@ module.exports = function(opts, callback) {
     }
   })
 }
-
 
 var addImports = function(file, contents, type, imports) {
   switch (type) {
