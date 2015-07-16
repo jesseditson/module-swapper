@@ -13,6 +13,7 @@ if (argv._[0]) {
 var modules = {
   'Backbone': 'backbone',
   '$': 'jquery',
+  'jQuery': 'jquery',
   'moment': 'moment',
   '_': 'underscore',
   'Marionette': 'marionette',
@@ -44,14 +45,29 @@ var globals = {
   'Helpers': true
 }
 
+if (argv.inline) {
+  var dirty = require('child_process').execSync('git status --porcelain')
+  if (String(dirty).length > 0) {
+    console.warn('You have unstaged changes, refusing to run inline replacements. Please commit your work before running with --inline or run with --diff for diff.')
+    process.exit(0)
+  }
+}
+
+var logger = require('debug')('module-swapper')
+if (argv.verbose) {
+  logger = console.log
+}
+
 require('../index.js')({
   dir: dirname,
   extensions: null,
   loader: null,
   modules: modules,
   falafelOpts: null,
+  logger: logger,
   replaceInline: false,
   globals: globals,
+  replaceInline: argv.inline,
   // fileFilter: /(\/app|backgrid\/cells|language)/
 }, function(err, files, inFiles) {
   if (err) throw err

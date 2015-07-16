@@ -127,21 +127,19 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
     propertyFn: function(propertyName, node, module, varMap) {
       var moduleName = getModuleName(module.name, varMap)
       var propertyMap = filesMap[moduleName]
-      var defaultFile = null
       if (propertyMap && !propertyMap[propertyName]) {
         var modules = filesMap[moduleName]
         var fileNames = Object.keys(modules)
         var files = Object.keys(fileNames.reduce(function(o, f) { o[modules[f]] = true; return o }, {}))
         if (files.length === 1) {
-          defaultFile = files[0]
+          propertyMap[propertyName] = files[0]
         } else {
           var opts = ['SKIP'].concat(files)
           var answer = readlineSync.keyInSelect(opts, 'Unable to auto-resolve dependency ' + moduleName +' based on access of "' + propertyName + '". Please choose which file has this property:')
           if (!~answer) {
             throw new Error('Cancelled.')
           } else if (answer > 0) {
-            console.log(opts[answer])
-            defaultFile = opts[answer]
+            propertyMap[propertyName] = opts[answer]
           }
         }
       }
@@ -151,22 +149,21 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
         var vars = getModuleVars(node, info.appName)
         if (moduleName === vars.appVar || moduleName == vars.moduleVar) return
         logger(('WARNING: unknown module ' + module.name + '. Unable to resolve this dependency.').yellow)
-      } else if (!propertyMap[propertyName] && !defaultFile) {
+      } else if (!propertyMap[propertyName]) {
         logger(('WARNING: unknown property ' + propertyName + ' accessed on module ' + moduleName + '(via ' +module.name+ '). Unable to resolve this access.').yellow)
       } else {
         var requiredModule
         if (requiresProperties[moduleName]) {
-          // we've already accessed this module once, see if the properties line up.
           if (!requiresProperties[moduleName][propertyName]) {
             // this property is not on the existing module, add a new require
             var p = /(\d)?$/
             var m = moduleName.match(p)
             // add or increment a trailing number if there's already a module being imported by this name.
             var propertyModule = toVarName(moduleName).replace(p, parseInt(m[1] || '1', 10) + 1)
-            console.log('adding', moduleName, 'for access of', propertyName, '->', propertyModule)
+            // console.log('adding', moduleName, 'for access of', propertyName, '->', propertyModule)
             requiresProperties[moduleName][propertyName] = propertyModule
-            console.log('requiring', propertyModule, propertyMap[propertyName] || defaultFile)
-            requires[propertyModule] = propertyMap[propertyName] || defaultFile
+            // console.log('requiring', propertyModule, propertyMap[propertyName])
+            requires[propertyModule] = propertyMap[propertyName]
             requiredModule = propertyModule
           } else {
             requiredModule = requiresProperties[moduleName][propertyName]
@@ -174,7 +171,7 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
         } else {
           requiresProperties[moduleName] = {}
           requiresProperties[moduleName][propertyName] = toVarName(moduleName)
-          requires[toVarName(moduleName)] = propertyMap[propertyName] || defaultFile
+          requires[toVarName(moduleName)] = propertyMap[propertyName]
           requiredModule = toVarName(moduleName)
         }
         node.update(requiredModule)
@@ -360,6 +357,10 @@ module.exports = function(opts, callback) {
 
       inFiles[file] = info.contents
       outFiles[file] = info.transformed
+
+      if (replaceInline) {
+        fs.writeFileSync(file, info.transformed)
+      }
 
       return o
     }, {})
