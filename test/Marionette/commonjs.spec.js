@@ -156,36 +156,4 @@ describe('Marionette modules -> commonjs', function() {
 
   })
 
-  describe.only("when properties are set on modules via `this`", function() {
-
-    it('should properly export the app and module names.', function(done) {
-      moduleSwapper(opts('thisProperty'), function(err, files, inFiles) {
-        assert.ifError(err)
-        assertContainsFiles(files, ['app.js', 'module.js', 'module2.js', 'module3.js'])
-        for (var f in files) {
-          if (isFile(f, 'app.js')) {
-            assertContainsLine(files[f], 'module.exports = App;')
-          } else if (isFile(f, 'module.js')) {
-            assertContainsLine(files[f], 'module.exports = Module;')
-          } else if (isFile(f, 'module2.js')) {
-            assertContainsLine(files[f], "var MyModuleName = require('./module');")
-            assertContainsLine(files[f], 'var someProp = MyModuleName.aProperty')
-            assertContainsLine(files[f], 'module.exports = Module;')
-          } else if (isFile(f, 'module3.js')) {
-            assertContainsLine(files[f], "var MyModuleName2 = require('./module2');")
-            assertContainsLine(files[f], "var MyModuleName = require('./module');")
-            assertContainsLine(files[f], 'var theModule = MyModuleName')
-            assertContainsLine(files[f], 'var prop = MyModuleName.aProperty')
-            assertContainsLine(files[f], 'var aFunction = MyModuleName2.someFunction')
-            assertContainsLine(files[f], 'var reassigned = theModule')
-            assertContainsLine(files[f], 'var aProp = MyModuleName.aProperty')
-            assertContainsLine(files[f], 'module.exports = Module;')
-          }
-        }
-        if (diff) diff(inFiles, files, fixtureBase)
-        done()
-      })
-    })
-  })
-
 })
