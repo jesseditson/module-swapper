@@ -109,6 +109,24 @@ describe('Marionette modules -> commonjs', function() {
 
   })
 
+  describe('an app that defines properties on app', function() {
+
+    it ('should be able to access those properties when accessing app by the curried var', function(done) {
+      moduleSwapper(opts('appRedefinition'), function(err, files, inFiles) {
+        assert.ifError(err)
+        assertContainsFiles(files, ['app.js', 'module.js'])
+        for (var f in files) {
+          if (isFile(f, 'module.js')) {
+            assertContainsLine(files[f], "var App = require('./app');")
+            assertContainsLine(files[f], "var test = App.someProp")
+          }
+        }
+        if (diff) diff(inFiles, files, fixtureBase)
+        done()
+      })
+    })
+  })
+
   describe('an app with multiple modules with the same name', function() {
 
     it ('should use the correct version of the file based on what properties were accessed', function(done) {

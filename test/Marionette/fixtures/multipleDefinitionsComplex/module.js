@@ -1,3 +1,3 @@
-App.module('MyModuleName', function(Module, MyApp) {
+App.module('MyModule.Name', function(Module, MyApp) {
   Module.aProperty = 'prop'
 })

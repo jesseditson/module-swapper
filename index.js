@@ -90,7 +90,8 @@ var processFileDependencies = function(file, contents, appName) {
     defined: definedModules,
     accessed: accessedProperties,
     required: needsRequire,
-    appProperties: appProperties
+    appProperties: appProperties,
+    moduleAppName: moduleAppName
   }
 }
 
@@ -122,8 +123,16 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
   */
   var requiresProperties = {}
 
-  var out = findModulePropertyAccess.call({falafelOpts: falafelOpts}, info.contents, info.accessed.moduleMap, {
+  // find App property access via the module app and switch it to the main one.
+  out = falafel(info.contents, falafelOpts, function(node) {
+    if (isMarionetteAppMemberExpression(node, [info.appName, info.moduleAppName])) {
+      node.object.update(info.appName)
+    }
+  })
+
+  var out = findModulePropertyAccess.call({falafelOpts: falafelOpts}, String(out), info.accessed.moduleMap, {
     appName: info.appName,
+    allowAccess: true,
     propertyFn: function(propertyName, node, module, varMap) {
       var moduleName = getModuleName(module.name, varMap)
       var propertyMap = filesMap[moduleName]
@@ -156,10 +165,9 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
         if (requiresProperties[moduleName]) {
           if (!requiresProperties[moduleName][propertyName]) {
             // this property is not on the existing module, add a new require
-            var p = /(\d)?$/
-            var m = moduleName.match(p)
+            var n = Object.keys(requiresProperties[moduleName]).length + 1
             // add or increment a trailing number if there's already a module being imported by this name.
-            var propertyModule = toVarName(moduleName).replace(p, parseInt(m[1] || '1', 10) + 1)
+            var propertyModule = toVarName(moduleName) + n
             // console.log('adding', moduleName, 'for access of', propertyName, '->', propertyModule)
             requiresProperties[moduleName][propertyName] = propertyModule
             // console.log('requiring', propertyModule, propertyMap[propertyName])
@@ -200,9 +208,12 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
             return a
           }, [])
         }
-        if (moduleFiles.length > 1) logger('WARNING: found more than one definition of ' + name + ' and was unable to determine which to use based on property access. Resolution may be innacurate.')
-        requires[name] = moduleFiles[0]
-        node.update(name)
+        var requireName = toVarName(name)
+        if (!requires[requireName]) {
+          if (moduleFiles.length > 1) logger('WARNING: found more than one definition of ' + name + ' and was unable to determine which to use based on property access. Resolution may be innacurate.')
+          requires[requireName] = moduleFiles[0]
+        }
+        node.update(requireName)
       }
     }
   })
