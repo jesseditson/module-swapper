@@ -125,8 +125,9 @@ var resolveDependencies = function(file, info, globalModules, filesMap) {
 
   // find App property access via the module app and switch it to the main one.
   out = falafel(info.contents, falafelOpts, function(node) {
-    if (isMarionetteAppMemberExpression(node, [info.appName, info.moduleAppName])) {
-      node.object.update(info.appName)
+    var assignedNode = isMarionetteAppMemberExpression(node, [info.appName, info.moduleAppName])
+    if (assignedNode) {
+      assignedNode.update(info.appName)
     }
   })
 

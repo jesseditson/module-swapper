@@ -174,4 +174,23 @@ describe('Marionette modules -> commonjs', function() {
 
   })
 
+  describe('app access', function() {
+
+    it ('should not replace access in a MemberExpression with an OR', function(done) {
+      moduleSwapper(opts('appVars'), function(err, files, inFiles) {
+        assert.ifError(err)
+        assertContainsFiles(files, ['app.js', 'module.js'])
+        for (var f in files) {
+          if (isFile(f, 'app.js')) {
+            // make sure we're not importing twice
+            assertContainsLine(files[f], "templates: (App || {}).templates")
+          }
+        }
+        if (diff) diff(inFiles, files, fixtureBase)
+        done()
+      })
+    })
+
+  })
+
 })
